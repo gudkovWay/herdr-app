@@ -71,12 +71,6 @@ export default class SessionPicker extends View {
         const result = await exec("sh", ["-c", LIST_SCRIPT, "herdr-session-picker", home()]);
         if (result.code !== 0) throw new Error(result.stderr || "Cannot list session directories");
         this.sessions = [...new Set(result.stdout.split("\0").filter(Boolean))].sort((a, b) => a.localeCompare(b));
-        const available = new Set(this.sessions);
-        const kept = this.history.filter((path) => available.has(path));
-        if (kept.length !== this.history.length) {
-          this.history = kept;
-          setShared(HISTORY_KEY, kept);
-        }
       } catch (error) {
         this.error = error?.message ?? "Cannot list session directories";
       }
@@ -93,7 +87,7 @@ export default class SessionPicker extends View {
     const open = spaces().filter((s) => !s.machine);
     const recent = new Set(this.history);
     const paths = [
-      ...this.history.filter((path) => this.sessions.includes(path)),
+      ...this.history,
       ...this.sessions.filter((path) => !recent.has(path)),
     ];
     return paths

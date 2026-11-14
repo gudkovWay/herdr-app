@@ -1307,7 +1307,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn session_picker_shell_script_uses_actual_newlines() {
+    fn session_picker_preserves_history_and_shell_script_contract() {
         let source = DEFAULT_MODS
             .iter()
             .find(|(path, _)| *path == "session-picker/main.js")
@@ -1315,6 +1315,8 @@ mod tests {
             .unwrap();
         assert!(source.contains(r#"].join("\n");"#), "picker script must join lines with actual newlines");
         assert!(!source.contains(r#"].join("\\n");"#), "picker script must not pass literal backslash-n sequences to sh");
+        assert!(source.contains("...this.history,"), "picker rows must show history before async directory discovery");
+        assert!(!source.contains("this.history.filter((path) => this.sessions.includes(path))"), "directory discovery must not erase history");
     }
 
     #[test]
