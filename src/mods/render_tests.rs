@@ -489,6 +489,41 @@ fn shipped_initial_descriptions(cx: &mut TestAppContext) {
         start.elapsed()
     );
 }
+#[gpui::test]
+fn shipped_motion_uses_native_transitions_for_focus_feedback(cx: &mut TestAppContext) {
+    cx.update(gpui_shell::init);
+    let staged = Staged::new();
+
+    let tabs = describe(
+        cx,
+        &staged,
+        "mods/tabs",
+        true,
+        props(),
+        updates("current", "current"),
+        None,
+    )
+    .unwrap();
+    assert!(
+        tabs.contains(":transition(top, 180ms, 0ms, ease-out)"),
+        "active tabs should settle through native top motion: {tabs}"
+    );
+
+    let pane = describe(
+        cx,
+        &staged,
+        "mods/pane",
+        true,
+        props(),
+        updates("current", "current"),
+        None,
+    )
+    .unwrap();
+    assert!(
+        pane.contains(":transition(top, 160ms, 0ms, ease-out)"),
+        "focused pane headers should settle through native top motion: {pane}"
+    );
+}
 
 /// A mod's localStorage write lands on the executor; one that lands after the
 /// staged folder's drop recreates it, and the folder outlives the test.

@@ -45,10 +45,9 @@ export default class Pane extends View {
   button(t, id, icon, command, args) {
     return div()
       .id(id)
-      .p(3)
-      .rounded(4)
-      .text_color(t.dim)
-      .hover((s) => s.bg(t.hover).text_color(t.foreground))
+      .relative()
+      .transition("left", { duration: 120, easing: "ease-out" })
+      .hover((s) => s.bg(t.hover).left(1))
       .on_click((_e, cx) => {
         cx.stop_propagation();
         run(command, args);
@@ -65,8 +64,12 @@ export default class Pane extends View {
     const st = p.status;
     const pane = p.pane;
     const bottom = paneFrame(layout())?.header?.position === "bottom";
+    // Focus gets a small native settle; controls slide only on hover.
     return h_flex()
       .id(`pane-head-${pane}`)
+      .relative()
+      .transition("top", { duration: 160, easing: "ease-out" })
+      .when(p.focused, el => el.top(-1))
       .size_full()
       .px(10)
       .gap(8)
