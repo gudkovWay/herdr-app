@@ -34,6 +34,7 @@ mod spawn;
 mod sprites;
 mod telemetry;
 mod feedback;
+mod terminal_effect;
 mod terminal;
 mod update;
 mod update_notes;

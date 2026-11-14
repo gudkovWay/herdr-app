@@ -17,6 +17,7 @@ use crate::mods::{self, Found, Instance, Request};
 use crate::settings;
 use crate::layout_sync;
 use crate::terminal::{TerminalEvent, TerminalView, scroll_target};
+use crate::terminal_effect::TerminalEffectEvent;
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_shell::action::ShellAction;
@@ -462,6 +463,7 @@ pub struct AppWindow {
     /// `focused()` reports it like a layout terminal block; the focused pane stays.
     window_terminal: Option<String>,
     /// Whether the last sync showed the tab, to hand it the keyboard back when a stack shows it again.
+    effect_tab: Option<String>,
     tab_shown: bool,
     pane_history: Vec<String>,
     window_active: bool,
@@ -569,6 +571,7 @@ impl AppWindow {
             synced_model_pane: None,
             window_terminal: None,
             tab_shown: true,
+            effect_tab: None,
             pane_history: Vec::new(),
             window_active: true,
             system_dark: is_dark(window.appearance()),
@@ -1548,6 +1551,12 @@ impl AppWindow {
             }
         }
         self.publish_shown_copies();
+        let active_tab = self.model.active_tab().map(|tab| tab.id.clone());
+        let tab_switched = self.effect_tab.as_ref().is_some_and(|previous| Some(previous) != active_tab.as_ref());
+        self.effect_tab = active_tab;
+        if tab_switched {
+            self.trigger_visible_terminal_effect(TerminalEffectEvent::TabSwitch, cx);
+        }
 
         // Keyboard to the focused pane when it changes (never steal it from an open dialog).
         let model_pane = self.model.focused_pane();
@@ -2129,6 +2138,19 @@ impl AppWindow {
         });
     }
 
+    fn trigger_terminal_effect(&self, address: &str, event: TerminalEffectEvent, cx: &mut Context<Self>) {
+        for term in self.terms.values().filter(|term| term.address == address) {
+            term.view.update(cx, |view, cx| view.trigger_effect(event, cx));
+        }
+    }
+
+    fn trigger_visible_terminal_effect(&self, event: TerminalEffectEvent, cx: &mut Context<Self>) {
+        let addresses = self.visible_addresses();
+        for address in addresses {
+            self.trigger_terminal_effect(&address, event, cx);
+        }
+    }
+
     fn terminals_listed(&mut self, v: Value, window: &mut Window, cx: &mut Context<Self>) {
         let mut list = v.get("terminals").cloned().unwrap_or(Value::Array(vec![]));
         let mut live = HashMap::new();
@@ -2172,11 +2194,15 @@ impl AppWindow {
             let app = rec.get("report").and_then(|r| r.get("app")).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
             let looking = visible.contains(addr) && self.window_active;
             let prev = self.model.agents.get(addr).and_then(|a| a.word.clone());
+            let effect = crate::terminal_effect::agent_event(prev.as_deref(), word.as_deref());
             let child = rec.get("parent").and_then(Value::as_str).is_some_and(|p| !p.is_empty());
             if let Some(alert) = self.model.alert_for(addr, child, prev.as_deref(), word.as_deref(), looking) {
                 alerts.push((addr.clone(), alert, looking));
             }
             changed |= self.model.set_word(addr, word, app, looking);
+            if let Some(effect) = effect {
+                self.trigger_terminal_effect(addr, effect, cx);
+            }
             let turn = rec.get("turn").and_then(Value::as_u64).unwrap_or(0);
             let label = rec.pointer("/labels/herdr.seen").and_then(Value::as_str).and_then(|s| s.parse::<u64>().ok());
             changed |= self.model.set_turn(addr, turn, label.max(self.written_seen.get(addr).copied()));
@@ -2426,17 +2452,23 @@ impl AppWindow {
             return self.close_overlay(&id, window, cx);
         }
         // How its stream ended, for `reconcile` (`hc run --rm` leaves no record).
-        if let Some(t) = self.terms.get(block)
-            && let Some(why) = t.view.read(cx).ended.clone()
-        {
+        let ended = self.terms.get(block).and_then(|t| {
+            let view = t.view.read(cx);
+            view.ended.clone().map(|why| {
+                (t.address.clone(), view.exit_code, matches!(why.as_str(), "exited" | "killed" | "finished"))
+            })
+        });
+        if let Some((address, exit_code, closed)) = ended {
             // The program ended on its own (or was killed): its pane goes now. A
             // stream that just broke (the core died) says neither.
-            let closed = matches!(why.as_str(), "exited" | "killed" | "finished");
-            if closed && self.chrome.find(block).and_then(Node::terminal) == Some(t.address.as_str()) {
+            if closed {
+                self.trigger_visible_terminal_effect(TerminalEffectEvent::ExitCode(exit_code), cx);
+            }
+            if closed && self.chrome.find(block).and_then(Node::terminal) == Some(address.as_str()) {
                 self.chrome.remove_slot(block);
                 return self.sync(window, cx);
             }
-            if closed && self.model.address_of(block).as_deref() == Some(t.address.as_str()) {
+            if closed && self.model.address_of(block).as_deref() == Some(address.as_str()) {
                 self.model.remove_pane(block);
                 return self.sync(window, cx);
             }

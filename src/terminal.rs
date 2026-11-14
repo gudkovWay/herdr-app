@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 use std::collections::HashMap;
 use std::future::Future;
 use std::task::Poll;
+use crate::terminal_effect::{TerminalEffect, TerminalEffectEvent};
 use crate::links;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -146,6 +147,7 @@ pub struct TerminalView {
     pub address: String,
     pub title: String,
     pub ended: Option<String>,
+    pub exit_code: Option<i32>,
     /// The core connection dropped; waiting to reattach.
     pub lost: bool,
     /// A left-button selection drag is in progress.
@@ -162,6 +164,7 @@ pub struct TerminalView {
     /// Right-clicks go to the program when it takes the mouse (Shift: the menu).
     pub right_click_to_program: bool,
     grid: Rc<RefCell<Grid>>,
+    effect: Rc<RefCell<TerminalEffect>>,
     focus: FocusHandle,
     was_focused: bool,
     /// The window frame this terminal was last put on screen in (`FRAME`).
@@ -299,6 +302,7 @@ impl TerminalView {
             address: address.clone(),
             title: address.clone(),
             ended: None,
+            exit_code: None,
             lost: false,
             selecting: false,
             published_selection: None,
@@ -330,6 +334,7 @@ impl TerminalView {
                 painted: Vec::new(),
                 painted_with: (0, Size::default(), font(""), 0, false),
             })),
+            effect: Rc::new(RefCell::new(TerminalEffect::default())),
             focus: cx.focus_handle(),
             was_focused: false,
             shown_in: Cell::new(0),
@@ -549,6 +554,7 @@ impl TerminalView {
     /// Feeds relayed bytes in; returns false once the stream is over.
     fn ingest(&mut self, batch: impl IntoIterator<Item = Stream>, cx: &mut Context<Self>) -> bool {
         let mut open = true;
+        let mut exit_code = None;
         let title = {
             let mut g = self.grid.borrow_mut();
             for item in batch {
@@ -575,6 +581,8 @@ impl TerminalView {
                     }
                     Stream::Closed(why) => {
                         open = false;
+                        exit_code = why.get("exit_code").and_then(Value::as_i64).map(|code| code as i32);
+                        self.exit_code = exit_code;
                         g.channel = None;
                         self.ended = Some(why.get("reason").and_then(|r| r.as_str()).unwrap_or("ended").to_owned());
                     }
@@ -591,6 +599,9 @@ impl TerminalView {
         if let Some(title) = title {
             let title = if title.is_empty() { self.address.clone() } else { title };
             self.set_title(&title, cx);
+        }
+        if !open {
+            self.trigger_effect(TerminalEffectEvent::ExitCode(exit_code), cx);
         }
         self.selection_changed(cx);
         if !open {
@@ -646,6 +657,10 @@ impl TerminalView {
     /// The window puts this terminal on screen in the frame it's building.
     pub fn mark_shown(&self) {
         self.shown_in.set(FRAME.load(Ordering::Relaxed));
+    }
+    pub fn trigger_effect(&self, event: TerminalEffectEvent, cx: &mut Context<Self>) {
+        self.effect.borrow_mut().trigger(event);
+        cx.notify();
     }
 
     /// A hidden pane cannot render its focus loss.
@@ -2410,10 +2425,14 @@ impl Render for TerminalView {
         // owns keyboard input.
         let focused = terminal_focused || search_focused;
         if focused != self.was_focused {
+            let gained_focus = focused && !self.was_focused;
             self.was_focused = focused;
             let g = self.grid.borrow();
             if let Some(ch) = g.channel {
                 g.core.focus(ch, focused);
+            }
+            if gained_focus {
+                self.trigger_effect(TerminalEffectEvent::Focus, cx);
             }
         }
         let cell = cell_size(window);
@@ -2424,6 +2443,7 @@ impl Render for TerminalView {
         self.grid.borrow_mut().link_spans = spans.unwrap_or_default();
         let grid = self.grid.clone();
         let grid_paint = self.grid.clone();
+        let effect = self.effect.clone();
         let selection_view = cx.entity().downgrade();
         let (input_focus, input_view) = (self.focus.clone(), cx.entity());
         let ended = self.ended.clone().or_else(|| self.lost.then(|| "reconnecting to core…".to_owned()));
@@ -2627,6 +2647,18 @@ impl Render for TerminalView {
                         }
                     },
                 )
+                .size_full(),
+            )
+            .child(
+                canvas(
+                    |_, _, _| {},
+                    move |bounds, _, window, _| {
+                        if effect.borrow_mut().paint(bounds, window) {
+                            window.request_animation_frame();
+                        }
+                    },
+                )
+                .absolute()
                 .size_full(),
             )
             .when_some(search_input, |d, input| {
