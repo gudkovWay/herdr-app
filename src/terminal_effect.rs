@@ -112,7 +112,7 @@ impl TerminalEffect {
             return;
         }
 
-        let rect = |x: f32, y: f32, w: f32, h: f32, opacity: f32| {
+        let mut rect = |x: f32, y: f32, w: f32, h: f32, opacity: f32| {
             let x = x.clamp(0.0, width);
             let y = y.clamp(0.0, height);
             let right = (x + w).clamp(x, width);
