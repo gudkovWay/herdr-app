@@ -315,6 +315,35 @@ mod tests {
         assert_eq!(super::current("pane.zoom"), "pane.zoom");
     }
 
+    #[test]
+    fn cli_prefix_defaults_cover_supported_actions() {
+        let sections: std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>> =
+            serde_json::from_str(super::DEFAULTS).unwrap();
+        let global = &sections["global"];
+        for (keys, action) in [
+            ("ctrl-a f", "mod.open:session-picker"),
+            ("ctrl-a а", "mod.open:session-picker"),
+            ("ctrl-a s", "mod.open:picker"),
+            ("ctrl-a ы", "mod.open:picker"),
+            ("ctrl-a \\", "pane.split:right"),
+            ("ctrl-a -", "pane.split:down"),
+            ("ctrl-a x", "pane.close"),
+            ("ctrl-a h", "pane.go:left"),
+            ("ctrl-a j", "pane.go:down"),
+            ("ctrl-a k", "pane.go:up"),
+            ("ctrl-a l", "pane.go:right"),
+            ("ctrl-a z", "pane.zoom"),
+            ("ctrl-a b", "layout.toggle:sidebar"),
+            ("ctrl-a shift-t", "tab.rename"),
+            ("ctrl-a shift-n", "space.new"),
+            ("ctrl-a shift-w", "space.rename"),
+            ("ctrl-a shift-d", "space.close"),
+            ("ctrl-a shift-x", "tab.close"),
+        ] {
+            assert_eq!(global.get(keys).map(String::as_str), Some(action), "{keys}");
+        }
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn mac_shifted_punctuation_matches_existing_keys_files() {
