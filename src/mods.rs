@@ -1307,6 +1307,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn session_picker_shell_script_uses_actual_newlines() {
+        let source = DEFAULT_MODS
+            .iter()
+            .find(|(path, _)| *path == "session-picker/main.js")
+            .map(|(_, bytes)| std::str::from_utf8(bytes).unwrap())
+            .unwrap();
+        assert!(source.contains(r#"].join("\n");"#), "picker script must join lines with actual newlines");
+        assert!(!source.contains(r#"].join("\\n");"#), "picker script must not pass literal backslash-n sequences to sh");
+    }
+
+    #[test]
     fn an_input_selection_uses_the_theme_selection_colour() {
         let mut tokens = gpui_base::SemanticThemeTokens::default();
         tokens.colors.accent = gpui::hsla(0.1, 0.5, 0.5, 1.0);

@@ -20,7 +20,7 @@ const LIST_SCRIPT = [
   "       -o -name coverage -o -name target -o -name tmp -o -name cache -o -name venv \\",
   "       -o -name __pycache__ -o -name 'lost+found' \\) -prune -o -type d -print0 2>/dev/null || true",
   "done",
-].join("\\n");
+].join("\n");
 
 function displayPath(path) {
   const h = home();
